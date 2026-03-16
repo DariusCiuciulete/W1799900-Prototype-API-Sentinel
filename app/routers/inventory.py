@@ -2,7 +2,7 @@
 Inventory Router - Manage API endpoints inventory
 """
 from fastapi import APIRouter, Request, Form, HTTPException
-from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
 import csv
@@ -18,10 +18,10 @@ templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent
 
 @router.get("/", response_class=HTMLResponse)
 async def inventory_page(request: Request, search: str = None):
-    """Inventory management page"""
+    """Show inventory of all API endpoints"""
     endpoints = db.get_all_endpoints()
     
-    # Filter by search if provided
+    # Filter endpoints if user searched for something
     if search:
         search_lower = search.lower()
         endpoints = [e for e in endpoints if 
@@ -46,7 +46,7 @@ async def add_endpoint(
     auth_type: str = Form(None),
     is_internal: bool = Form(False)
 ):
-    """Add a new endpoint manually"""
+    """Add a new endpoint to the inventory"""
     try:
         endpoint_id = db.add_endpoint(
             service_name=service_name,
@@ -59,8 +59,9 @@ async def add_endpoint(
             discovery_source="manual"
         )
         
-        logger.info(f"Manually added endpoint: {service_name} - {method} {path}")
-        return {"success": True, "endpoint_id": endpoint_id, "message": "Endpoint added successfully"}
+        logger.info(f"Added endpoint: {service_name} {method} {path}")
+        db.log_event("INVENTORY", endpoint_id, f"Endpoint added: {method} {path}")
+        return {"success": True, "endpoint_id": endpoint_id}
     
     except Exception as e:
         logger.error(f"Error adding endpoint: {str(e)}")
@@ -81,21 +82,31 @@ async def update_endpoint(
 ):
     """Update an existing endpoint"""
     try:
+        # Build update dictionary with only provided fields
         updates = {}
-        if service_name: updates['service_name'] = service_name
-        if base_url: updates['base_url'] = base_url
-        if path: updates['path'] = path
-        if method: updates['method'] = method
-        if description is not None: updates['description'] = description
-        if auth_type: updates['auth_type'] = auth_type
-        if is_internal is not None: updates['is_internal'] = is_internal
-        if is_active is not None: updates['is_active'] = is_active
+        if service_name:
+            updates['service_name'] = service_name
+        if base_url:
+            updates['base_url'] = base_url
+        if path:
+            updates['path'] = path
+        if method:
+            updates['method'] = method
+        if description is not None:
+            updates['description'] = description
+        if auth_type:
+            updates['auth_type'] = auth_type
+        if is_internal is not None:
+            updates['is_internal'] = is_internal
+        if is_active is not None:
+            updates['is_active'] = is_active
         
         success = db.update_endpoint(endpoint_id, **updates)
         
         if success:
-            logger.info(f"Updated endpoint ID: {endpoint_id}")
-            return {"success": True, "message": "Endpoint updated successfully"}
+            logger.info(f"Updated endpoint {endpoint_id}")
+            db.log_event("INVENTORY", endpoint_id, "Endpoint updated")
+            return {"success": True, "message": "Updated"}
         else:
             raise HTTPException(status_code=404, detail="Endpoint not found")
     
@@ -111,8 +122,9 @@ async def delete_endpoint(endpoint_id: int):
         success = db.delete_endpoint(endpoint_id)
         
         if success:
-            logger.info(f"Deleted endpoint ID: {endpoint_id}")
-            return {"success": True, "message": "Endpoint deleted successfully"}
+            logger.info(f"Deleted endpoint {endpoint_id}")
+            db.log_event("INVENTORY", None, f"Endpoint deleted (ID: {endpoint_id})")
+            return {"success": True}
         else:
             raise HTTPException(status_code=404, detail="Endpoint not found")
     
@@ -123,21 +135,23 @@ async def delete_endpoint(endpoint_id: int):
 
 @router.post("/toggle/{endpoint_id}")
 async def toggle_endpoint(endpoint_id: int):
-    """Toggle endpoint active status"""
+    """Activate or deactivate an endpoint"""
     try:
         endpoint = db.get_endpoint_by_id(endpoint_id)
         if not endpoint:
             raise HTTPException(status_code=404, detail="Endpoint not found")
         
+        # Toggle the active status
         new_status = not endpoint['is_active']
         success = db.update_endpoint(endpoint_id, is_active=new_status)
         
         if success:
-            status_text = "activated" if new_status else "deactivated"
-            logger.info(f"Endpoint ID {endpoint_id} {status_text}")
-            return {"success": True, "is_active": new_status, "message": f"Endpoint {status_text}"}
+            status = "active" if new_status else "inactive"
+            logger.info(f"Endpoint {endpoint_id} is now {status}")
+            db.log_event("INVENTORY", endpoint_id, f"Endpoint toggled: {status}")
+            return {"success": True, "is_active": new_status}
         else:
-            raise HTTPException(status_code=500, detail="Failed to toggle endpoint")
+            raise HTTPException(status_code=500, detail="Could not update")
     
     except Exception as e:
         logger.error(f"Error toggling endpoint: {str(e)}")
@@ -146,25 +160,23 @@ async def toggle_endpoint(endpoint_id: int):
 
 @router.get("/export")
 async def export_inventory():
-    """Export inventory to CSV"""
+    """Export all endpoints as CSV"""
     try:
         endpoints = db.get_all_endpoints()
         
-        # Create CSV in memory
+        # Create CSV file in memory
         output = io.StringIO()
-        writer = csv.DictWriter(output, fieldnames=[
+        fieldnames = [
             'id', 'service_name', 'base_url', 'path', 'method', 'description',
             'auth_type', 'is_internal', 'is_active', 'discovery_source',
             'created_at', 'updated_at'
-        ])
+        ]
         
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(endpoints)
         
-        # Convert to bytes
-        output.seek(0)
-        
-        logger.info("Inventory exported to CSV")
+        logger.info("Exported inventory to CSV")
         
         return StreamingResponse(
             iter([output.getvalue()]),
@@ -173,19 +185,19 @@ async def export_inventory():
         )
     
     except Exception as e:
-        logger.error(f"Error exporting inventory: {str(e)}")
+        logger.error(f"Error exporting: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/{endpoint_id}")
 async def get_endpoint_details(request: Request, endpoint_id: int):
-    """Get detailed information about a specific endpoint"""
+    """Show detailed info about one endpoint"""
     endpoint = db.get_endpoint_by_id(endpoint_id)
     
     if not endpoint:
         raise HTTPException(status_code=404, detail="Endpoint not found")
     
-    # Get monitoring results for this endpoint
+    # Get recent monitoring results
     monitoring_results = db.get_monitoring_results(endpoint_id=endpoint_id, limit=50)
     
     return templates.TemplateResponse("endpoint_detail.html", {

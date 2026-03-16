@@ -1,1 +1,177 @@
-##PLANNED FOR FINAL SUBMISSION
+{% extends "base.html" %}
+
+{% block title %}Event Logs - API Sentinel{% endblock %}
+
+{% block content %}
+<div class="flex justify-between items-center mb-3">
+    <h1>System Logs</h1>
+    <div class="flex gap-1">
+        <a href="/logs/export{% if event_type != 'all' %}?event_type={{ event_type }}{% endif %}" class="btn btn-secondary btn-sm">Export CSV</a>
+        {% if event_type != 'all' %}
+        <a href="/logs" class="btn btn-secondary btn-sm">Clear Filter</a>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Filter by Event Type -->
+<div class="card mb-3">
+    <div class="card-body">
+        <h3 class="mb-2">Filter by Event Type</h3>
+        <div class="flex gap-1" style="flex-wrap: wrap;">
+            <a href="/logs" class="btn {% if event_type == 'all' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">All Events</a>
+            <a href="/logs?event_type=DISCOVERY" class="btn {% if event_type == 'DISCOVERY' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">Discovery</a>
+            <a href="/logs?event_type=INVENTORY" class="btn {% if event_type == 'INVENTORY' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">Inventory</a>
+            <a href="/logs?event_type=MONITORING" class="btn {% if event_type == 'MONITORING' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">Monitoring</a>
+            <a href="/logs?event_type=ALERT" class="btn {% if event_type == 'ALERT' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">Alerts</a>
+        </div>
+    </div>
+</div>
+
+<!-- Logs Statistics -->
+<div class="grid grid-2 mb-3">
+    <div class="card stat-card">
+        <div class="stat-label">Total Logs</div>
+        <div class="stat-value">{{ count }}</div>
+    </div>
+    <div class="card stat-card">
+        <div class="stat-label">Current Filter</div>
+        <div class="stat-value" style="font-size: 14px;">{{ event_type }}</div>
+    </div>
+</div>
+
+<!-- Logs Table -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Event Log</h2>
+    </div>
+    <div class="card-body">
+        {% if logs %}
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Type</th>
+                        <th>Endpoint ID</th>
+                        <th>Message</th>
+                        <th>Details</th>
+                        <th>Severity</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in logs %}
+                    <tr>
+                        <td>
+                            <small>{{ log['created_at']|slice(0, 19) }}</small>
+                        </td>
+                        <td>
+                            <span class="badge" style="background-color: 
+                                {% if log['event_type'] == 'DISCOVERY' %}#007bff
+                                {% elif log['event_type'] == 'INVENTORY' %}#28a745
+                                {% elif log['event_type'] == 'MONITORING' %}#ffc107
+                                {% elif log['event_type'] == 'ALERT' %}#dc3545
+                                {% else %}#6c757d{% endif %};">
+                                {{ log['event_type'] }}
+                            </span>
+                        </td>
+                        <td>
+                            {% if log['endpoint_id'] %}
+                            <a href="/inventory/{{ log['endpoint_id'] }}">{{ log['endpoint_id'] }}</a>
+                            {% else %}
+                            <em style="color: #999;">—</em>
+                            {% endif %}
+                        </td>
+                        <td>{{ log['message'] }}</td>
+                        <td>
+                            {% if log['details'] %}
+                            <small style="color: #666;">{{ log['details'] }}</small>
+                            {% else %}
+                            <em style="color: #999;">—</em>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span style="color: 
+                                {% if log['severity'] == 'ERROR' %}#dc3545
+                                {% elif log['severity'] == 'WARNING' %}#ffc107
+                                {% else %}#28a745{% endif %};">
+                                {{ log['severity'] }}
+                            </span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div style="padding: 20px; text-align: center; color: #999;">
+            <p>No logs found</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<style>
+    .grid-2 {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 1rem;
+    }
+    
+    .stat-card {
+        padding: 1.5rem;
+        text-align: center;
+    }
+    
+    .stat-label {
+        font-size: 12px;
+        color: #666;
+        text-transform: uppercase;
+        margin-bottom: 8px;
+    }
+    
+    .stat-value {
+        font-size: 24px;
+        font-weight: bold;
+        color: var(--primary-color);
+    }
+    
+    .badge {
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 4px;
+        color: white;
+        font-size: 12px;
+        font-weight: bold;
+    }
+    
+    table small {
+        font-size: 12px;
+    }
+    
+    .table-container {
+        overflow-x: auto;
+    }
+    
+    table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    
+    table th {
+        background-color: #f5f5f5;
+        padding: 12px;
+        text-align: left;
+        font-weight: 600;
+        border-bottom: 2px solid #ddd;
+    }
+    
+    table td {
+        padding: 10px 12px;
+        border-bottom: 1px solid #eee;
+    }
+    
+    table tbody tr:hover {
+        background-color: #f9f9f9;
+    }
+</style>
+{% endblock %}

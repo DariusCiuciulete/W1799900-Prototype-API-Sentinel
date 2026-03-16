@@ -33,6 +33,23 @@
 <!-- Status Message -->
 <div id="statusMessage" style="display: none;"></div>
 
+<!-- Alert Thresholds Section -->
+<div class="card mb-3">
+    <div class="card-header">
+        <h2 class="card-title">Alert Thresholds</h2>
+    </div>
+    <div class="card-body">
+        <p style="color: #666; margin-bottom: 15px;">
+            Set response time, availability, and error rate thresholds for each endpoint. 
+            Alerts will be triggered automatically when endpoints exceed these limits.
+        </p>
+        <p style="font-size: 12px; color: #999;">
+            <strong>Note:</strong> Thresholds are configured via the API. 
+            Use POST /alerts/endpoint/{endpoint_id}/threshold with parameters: threshold_type and threshold_value.
+        </p>
+    </div>
+</div>
+
 <!-- Endpoints Monitoring Table -->
 <div class="card">
     <div class="card-header">

@@ -4,7 +4,7 @@ Handles SQLite database operations for inventory and monitoring
 """
 import sqlite3
 from datetime import datetime
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional
 import logging
 from pathlib import Path
 
@@ -15,16 +15,16 @@ DB_PATH = Path(__file__).resolve().parent.parent / "api_sentinel.db"
 
 
 class Database:
-    """Database manager for API Sentinel"""
+    """Simple database manager for API Sentinel"""
     
     def __init__(self, db_path: str = None):
         self.db_path = db_path or str(DB_PATH)
         self.init_database()
     
     def get_connection(self):
-        """Get database connection"""
+        """Open a connection to the SQLite database"""
         conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn.row_factory = sqlite3.Row  # Return rows as dictionaries
         return conn
     
     def init_database(self):
@@ -205,26 +205,50 @@ class Database:
         return dict(row) if row else None
     
     def update_endpoint(self, endpoint_id: int, **kwargs) -> bool:
-        """Update endpoint fields"""
+        """Update endpoint - only update fields that were provided"""
         conn = self.get_connection()
         cursor = conn.cursor()
         
-        # Build update query dynamically
-        fields = []
+        # Build update statement with only provided fields
+        updates = []
         values = []
-        for key, value in kwargs.items():
-            if key in ['service_name', 'base_url', 'path', 'method', 'description', 
-                       'auth_type', 'is_internal', 'is_active']:
-                fields.append(f"{key} = ?")
-                values.append(value)
         
-        if not fields:
+        if 'service_name' in kwargs:
+            updates.append("service_name = ?")
+            values.append(kwargs['service_name'])
+        if 'base_url' in kwargs:
+            updates.append("base_url = ?")
+            values.append(kwargs['base_url'])
+        if 'path' in kwargs:
+            updates.append("path = ?")
+            values.append(kwargs['path'])
+        if 'method' in kwargs:
+            updates.append("method = ?")
+            values.append(kwargs['method'])
+        if 'description' in kwargs:
+            updates.append("description = ?")
+            values.append(kwargs['description'])
+        if 'auth_type' in kwargs:
+            updates.append("auth_type = ?")
+            values.append(kwargs['auth_type'])
+        if 'is_internal' in kwargs:
+            updates.append("is_internal = ?")
+            values.append(kwargs['is_internal'])
+        if 'is_active' in kwargs:
+            updates.append("is_active = ?")
+            values.append(kwargs['is_active'])
+        
+        # If nothing to update, return False
+        if not updates:
+            conn.close()
             return False
         
-        fields.append("updated_at = CURRENT_TIMESTAMP")
+        # Always update the timestamp
+        updates.append("updated_at = CURRENT_TIMESTAMP")
         values.append(endpoint_id)
         
-        query = f"UPDATE api_endpoints SET {', '.join(fields)} WHERE id = ?"
+        # Execute the update
+        query = f"UPDATE api_endpoints SET {', '.join(updates)} WHERE id = ?"
         cursor.execute(query, values)
         
         success = cursor.rowcount > 0
@@ -232,7 +256,7 @@ class Database:
         conn.close()
         
         if success:
-            self.log_event("INVENTORY", endpoint_id, f"Endpoint updated", f"Fields: {', '.join(kwargs.keys())}")
+            self.log_event("INVENTORY", endpoint_id, "Endpoint updated")
         
         return success
     
@@ -339,32 +363,239 @@ class Database:
     def create_alert(self, endpoint_id: int, alert_type: str, severity: str,
                     message: str, threshold_value: float = None, 
                     actual_value: float = None) -> int:
-        """Create a new alert"""
-        # Implementation pending
-        return 0
+        """Create a new alert for an endpoint"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO alerts 
+            (endpoint_id, alert_type, severity, message, threshold_value, actual_value)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (endpoint_id, alert_type, severity, message, threshold_value, actual_value))
+        
+        alert_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"Alert created for endpoint {endpoint_id}: {alert_type}")
+        return alert_id
     
     def get_active_alerts(self, endpoint_id: int = None) -> List[Dict]:
-        """Get active alerts"""
-        # Implementation pending
-        return []
+        """Get unresolved alerts"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        if endpoint_id:
+            cursor.execute('''
+                SELECT * FROM alerts 
+                WHERE is_resolved = 0 AND endpoint_id = ?
+                ORDER BY created_at DESC
+            ''', (endpoint_id,))
+        else:
+            cursor.execute('''
+                SELECT * FROM alerts 
+                WHERE is_resolved = 0
+                ORDER BY created_at DESC
+            ''')
+        
+        alerts = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+        return alerts
     
     def resolve_alert(self, alert_id: int) -> bool:
         """Mark an alert as resolved"""
-        # Implementation pending
-        return False
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            UPDATE alerts 
+            SET is_resolved = 1, resolved_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (alert_id,))
+        
+        success = cursor.rowcount > 0
+        conn.commit()
+        conn.close()
+        
+        if success:
+            logger.info(f"Alert {alert_id} resolved")
+        
+        return success
+    
+    # ==================== Alert Thresholds ====================
+    
+    def set_alert_threshold(self, endpoint_id: int, threshold_type: str, 
+                           threshold_value: float) -> int:
+        """Set or update an alert threshold for an endpoint"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        # Check if threshold already exists
+        cursor.execute('''
+            SELECT id FROM alert_thresholds 
+            WHERE endpoint_id = ? AND threshold_type = ?
+        ''', (endpoint_id, threshold_type))
+        
+        existing = cursor.fetchone()
+        
+        if existing:
+            # Update existing
+            cursor.execute('''
+                UPDATE alert_thresholds 
+                SET threshold_value = ? 
+                WHERE endpoint_id = ? AND threshold_type = ?
+            ''', (threshold_value, endpoint_id, threshold_type))
+            threshold_id = existing[0]
+        else:
+            # Insert new
+            cursor.execute('''
+                INSERT INTO alert_thresholds 
+                (endpoint_id, threshold_type, threshold_value, comparison, enabled)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (endpoint_id, threshold_type, threshold_value, 'greater_than', 1))
+            threshold_id = cursor.lastrowid
+        
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"Threshold set for endpoint {endpoint_id}: {threshold_type} = {threshold_value}")
+        return threshold_id
+    
+    def get_alert_thresholds(self, endpoint_id: int) -> List[Dict]:
+        """Get all thresholds for an endpoint"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT * FROM alert_thresholds 
+            WHERE endpoint_id = ? AND enabled = 1
+            ORDER BY threshold_type
+        ''', (endpoint_id,))
+        
+        thresholds = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+        return thresholds
+    
+    def check_and_trigger_alerts(self, endpoint_id: int, result: dict) -> List[int]:
+        """
+        Check if monitoring result breaches any thresholds.
+        Create alerts if thresholds are exceeded.
+        Returns: list of alert IDs created
+        """
+        alerts_created = []
+        thresholds = self.get_alert_thresholds(endpoint_id)
+        
+        if not thresholds:
+            return alerts_created
+        
+        # Get the endpoint info for context
+        endpoint = self.get_endpoint_by_id(endpoint_id)
+        
+        for threshold in thresholds:
+            threshold_type = threshold['threshold_type']
+            threshold_value = threshold['threshold_value']
+            
+            # Determine alert based on threshold type
+            should_alert = False
+            actual_value = None
+            severity = "MEDIUM"
+            message = ""
+            
+            if threshold_type == "latency" and result.get('response_time_ms'):
+                actual_value = result['response_time_ms']
+                if actual_value > threshold_value:
+                    should_alert = True
+                    message = f"Response time {actual_value:.0f}ms exceeds threshold {threshold_value}ms"
+                    severity = "HIGH" if actual_value > threshold_value * 2 else "MEDIUM"
+            
+            elif threshold_type == "availability" and result.get('success') is not None:
+                # For availability: if endpoint fails, trigger alert
+                if result['success'] == False:
+                    should_alert = True
+                    actual_value = 0  # Down
+                    message = f"Endpoint is down: {result.get('error', 'No response')}"
+                    severity = "CRITICAL"
+            
+            elif threshold_type == "error_rate":
+                # Check error rate from recent monitoring results
+                recent_results = self.get_monitoring_results(endpoint_id=endpoint_id, limit=10)
+                if recent_results:
+                    failures = sum(1 for r in recent_results if r['success'] == 0)
+                    error_rate = (failures / len(recent_results)) * 100
+                    actual_value = error_rate
+                    if error_rate > threshold_value:
+                        should_alert = True
+                        message = f"Error rate {error_rate:.1f}% exceeds threshold {threshold_value}%"
+                        severity = "HIGH"
+            
+            # Create alert if threshold is breached
+            if should_alert:
+                # Check if an unresolved alert already exists for this endpoint/type
+                existing = self.get_active_alerts(endpoint_id)
+                alert_exists = any(a['alert_type'] == threshold_type for a in existing)
+                
+                if not alert_exists:
+                    alert_id = self.create_alert(
+                        endpoint_id=endpoint_id,
+                        alert_type=threshold_type,
+                        severity=severity,
+                        message=message,
+                        threshold_value=threshold_value,
+                        actual_value=actual_value
+                    )
+                    alerts_created.append(alert_id)
+                    self.log_event(
+                        "ALERT",
+                        endpoint_id,
+                        f"Alert triggered: {threshold_type}",
+                        message,
+                        severity
+                    )
+        
+        return alerts_created
     
     # ==================== Logging ====================
     
     def log_event(self, event_type: str, endpoint_id: int = None, 
                   message: str = "", details: str = None, severity: str = "INFO") -> int:
-        """Log an event"""
-        # Implementation pending
-        return 0
+        """Log an event to the event_logs table"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO event_logs 
+            (event_type, endpoint_id, message, details, severity)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (event_type, endpoint_id, message, details, severity))
+        
+        log_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        
+        return log_id
     
     def get_logs(self, event_type: str = None, limit: int = 100) -> List[Dict]:
-        """Get event logs"""
-        # Implementation pending
-        return []
+        """Get event logs, optionally filtered by type"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        if event_type:
+            cursor.execute('''
+                SELECT * FROM event_logs 
+                WHERE event_type = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+            ''', (event_type, limit))
+        else:
+            cursor.execute('''
+                SELECT * FROM event_logs 
+                ORDER BY created_at DESC
+                LIMIT ?
+            ''', (limit,))
+        
+        logs = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+        return logs
     
     # ==================== Monitoring Configuration ====================
     
