@@ -39,7 +39,6 @@
                         <th>Method</th>
                         <th>Endpoint</th>
                         <th>Description</th>
-                        <th>Auth</th>
                         <th>Type</th>
                         <th>Status</th>
                         <th>Source</th>
@@ -53,7 +52,6 @@
                         <td><span class="badge badge-info">{{ endpoint.method }}</span></td>
                         <td><code>{{ endpoint.path }}</code></td>
                         <td>{{ endpoint.description or '-' }}</td>
-                        <td>{{ endpoint.auth_type or 'None' }}</td>
                         <td>
                             {% if endpoint.is_internal %}
                             <span class="badge badge-info">Internal</span>
@@ -119,10 +117,6 @@
             <div class="form-group">
                 <label class="form-label">Description</label>
                 <textarea name="description" class="form-control"></textarea>
-            </div>
-            <div class="form-group">
-                <label class="form-label">Authentication Type</label>
-                <input type="text" name="auth_type" class="form-control" placeholder="e.g., Bearer, API Key">
             </div>
             <div class="form-group">
                 <label><input type="checkbox" name="is_internal"> Internal API</label>

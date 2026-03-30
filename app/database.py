@@ -41,7 +41,6 @@ class Database:
                 path TEXT NOT NULL,
                 method TEXT NOT NULL,
                 description TEXT,
-                auth_type TEXT,
                 is_internal BOOLEAN DEFAULT 0,
                 is_active BOOLEAN DEFAULT 1,
                 discovery_source TEXT,
@@ -105,17 +104,14 @@ class Database:
                 timeout_seconds INTEGER DEFAULT 30,
                 latency_threshold_ms REAL DEFAULT 1000,
                 error_rate_threshold REAL DEFAULT 0.1,
-                auth_type TEXT DEFAULT 'none',
-                auth_value TEXT,
-                auth_header_name TEXT DEFAULT 'X-API-Key',
                 enabled BOOLEAN DEFAULT 1,
                 last_check TIMESTAMP,
                 FOREIGN KEY (endpoint_id) REFERENCES api_endpoints (id) ON DELETE CASCADE
             )
         ''')
 
-        # Keep existing databases compatible by adding new auth columns if missing.
-        self._ensure_monitoring_config_auth_columns(cursor)
+        # Remove deprecated auth columns from legacy database files.
+        self._migrate_remove_auth_columns(cursor)
         
         # Alert Thresholds Table
         cursor.execute('''
@@ -150,22 +146,81 @@ class Database:
         conn.close()
         logger.info("Database initialized successfully")
 
-    def _ensure_monitoring_config_auth_columns(self, cursor):
-        """Add auth columns to monitoring_config for older database files."""
-        cursor.execute("PRAGMA table_info(monitoring_config)")
-        existing_columns = {row[1] for row in cursor.fetchall()}
+    def _migrate_remove_auth_columns(self, cursor):
+        """Drop deprecated auth columns from legacy database schemas."""
+        cursor.execute("PRAGMA foreign_keys = OFF")
 
-        if 'auth_type' not in existing_columns:
-            cursor.execute("ALTER TABLE monitoring_config ADD COLUMN auth_type TEXT DEFAULT 'none'")
-        if 'auth_value' not in existing_columns:
-            cursor.execute("ALTER TABLE monitoring_config ADD COLUMN auth_value TEXT")
-        if 'auth_header_name' not in existing_columns:
-            cursor.execute("ALTER TABLE monitoring_config ADD COLUMN auth_header_name TEXT DEFAULT 'X-API-Key'")
+        try:
+            cursor.execute("PRAGMA table_info(api_endpoints)")
+            endpoint_columns = {row[1] for row in cursor.fetchall()}
+            if 'auth_type' in endpoint_columns:
+                cursor.execute("ALTER TABLE api_endpoints RENAME TO api_endpoints_legacy")
+                cursor.execute('''
+                    CREATE TABLE api_endpoints (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        service_name TEXT NOT NULL,
+                        base_url TEXT NOT NULL,
+                        path TEXT NOT NULL,
+                        method TEXT NOT NULL,
+                        description TEXT,
+                        is_internal BOOLEAN DEFAULT 0,
+                        is_active BOOLEAN DEFAULT 1,
+                        discovery_source TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(base_url, path, method)
+                    )
+                ''')
+                cursor.execute('''
+                    INSERT INTO api_endpoints (
+                        id, service_name, base_url, path, method, description,
+                        is_internal, is_active, discovery_source, created_at, updated_at
+                    )
+                    SELECT
+                        id, service_name, base_url, path, method, description,
+                        is_internal, is_active, discovery_source, created_at, updated_at
+                    FROM api_endpoints_legacy
+                ''')
+                cursor.execute("DROP TABLE api_endpoints_legacy")
+                logger.info("Migrated api_endpoints table: removed auth_type column")
+
+            cursor.execute("PRAGMA table_info(monitoring_config)")
+            monitoring_columns = {row[1] for row in cursor.fetchall()}
+            legacy_auth_columns = {'auth_type', 'auth_value', 'auth_header_name'}
+            if monitoring_columns.intersection(legacy_auth_columns):
+                cursor.execute("ALTER TABLE monitoring_config RENAME TO monitoring_config_legacy")
+                cursor.execute('''
+                    CREATE TABLE monitoring_config (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        endpoint_id INTEGER NOT NULL UNIQUE,
+                        check_interval_seconds INTEGER DEFAULT 300,
+                        timeout_seconds INTEGER DEFAULT 30,
+                        latency_threshold_ms REAL DEFAULT 1000,
+                        error_rate_threshold REAL DEFAULT 0.1,
+                        enabled BOOLEAN DEFAULT 1,
+                        last_check TIMESTAMP,
+                        FOREIGN KEY (endpoint_id) REFERENCES api_endpoints (id) ON DELETE CASCADE
+                    )
+                ''')
+                cursor.execute('''
+                    INSERT INTO monitoring_config (
+                        id, endpoint_id, check_interval_seconds, timeout_seconds,
+                        latency_threshold_ms, error_rate_threshold, enabled, last_check
+                    )
+                    SELECT
+                        id, endpoint_id, check_interval_seconds, timeout_seconds,
+                        latency_threshold_ms, error_rate_threshold, enabled, last_check
+                    FROM monitoring_config_legacy
+                ''')
+                cursor.execute("DROP TABLE monitoring_config_legacy")
+                logger.info("Migrated monitoring_config table: removed auth columns")
+        finally:
+            cursor.execute("PRAGMA foreign_keys = ON")
     
     # ==================== API Endpoints CRUD ====================
     
-    def add_endpoint(self, service_name: str, base_url: str, path: str, 
-                     method: str, description: str = None, auth_type: str = None,
+    def add_endpoint(self, service_name: str, base_url: str, path: str,
+                     method: str, description: str = None,
                      is_internal: bool = False, discovery_source: str = None) -> int:
         """Add a new API endpoint to inventory"""
         conn = self.get_connection()
@@ -174,9 +229,9 @@ class Database:
         try:
             cursor.execute('''
                 INSERT INTO api_endpoints 
-                (service_name, base_url, path, method, description, auth_type, is_internal, discovery_source)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (service_name, base_url, path, method, description, auth_type, is_internal, discovery_source))
+                (service_name, base_url, path, method, description, is_internal, discovery_source)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (service_name, base_url, path, method, description, is_internal, discovery_source))
             
             endpoint_id = cursor.lastrowid
             conn.commit()
@@ -202,10 +257,10 @@ class Database:
             # Endpoint already exists, update it instead
             cursor.execute('''
                 UPDATE api_endpoints 
-                SET service_name = ?, description = ?, auth_type = ?, 
+                SET service_name = ?, description = ?,
                     is_internal = ?, discovery_source = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE base_url = ? AND path = ? AND method = ?
-            ''', (service_name, description, auth_type, is_internal, discovery_source, base_url, path, method))
+            ''', (service_name, description, is_internal, discovery_source, base_url, path, method))
             
             cursor.execute('''
                 SELECT id FROM api_endpoints 
@@ -289,9 +344,6 @@ class Database:
         if 'description' in kwargs:
             updates.append("description = ?")
             values.append(kwargs['description'])
-        if 'auth_type' in kwargs:
-            updates.append("auth_type = ?")
-            values.append(kwargs['auth_type'])
         if 'is_internal' in kwargs:
             updates.append("is_internal = ?")
             values.append(kwargs['is_internal'])
@@ -869,44 +921,24 @@ class Database:
     
     def set_monitoring_config(self, endpoint_id: int, check_interval_seconds: int = 300,
                              timeout_seconds: int = 30, latency_threshold_ms: float = 1000,
-                             error_rate_threshold: float = 10, enabled: bool = True,
-                             auth_type: str = 'none', auth_value: str = None,
-                             auth_header_name: str = 'X-API-Key') -> int:
+                             error_rate_threshold: float = 10, enabled: bool = True) -> int:
         """Set monitoring configuration for an endpoint"""
         conn = self.get_connection()
         cursor = conn.cursor()
-
-        allowed_auth_types = ['none', 'bearer', 'api_key']
-        if auth_type not in allowed_auth_types:
-            auth_type = 'none'
-
-        if auth_type == 'none':
-            auth_value = None
-
-        if auth_type != 'api_key':
-            auth_header_name = 'X-API-Key'
-
-        if not auth_header_name:
-            auth_header_name = 'X-API-Key'
         
         cursor.execute('''
             INSERT INTO monitoring_config
             (endpoint_id, check_interval_seconds, timeout_seconds,
-             latency_threshold_ms, error_rate_threshold, auth_type,
-             auth_value, auth_header_name, enabled)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             latency_threshold_ms, error_rate_threshold, enabled)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(endpoint_id) DO UPDATE SET
                 check_interval_seconds = excluded.check_interval_seconds,
                 timeout_seconds = excluded.timeout_seconds,
                 latency_threshold_ms = excluded.latency_threshold_ms,
                 error_rate_threshold = excluded.error_rate_threshold,
-                auth_type = excluded.auth_type,
-                auth_value = excluded.auth_value,
-                auth_header_name = excluded.auth_header_name,
                 enabled = excluded.enabled
         ''', (endpoint_id, check_interval_seconds, timeout_seconds,
-              latency_threshold_ms, error_rate_threshold, auth_type,
-              auth_value, auth_header_name, enabled))
+              latency_threshold_ms, error_rate_threshold, enabled))
         
         config_id = cursor.lastrowid
         conn.commit()

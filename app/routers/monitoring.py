@@ -160,22 +160,11 @@ def check_single_endpoint(endpoint: dict, run_mode: str = "manual") -> dict:
         config = db.get_monitoring_config(endpoint_id)
         timeout = config['timeout_seconds'] if config else 30
         latency_threshold = config['latency_threshold_ms'] if config else 1000
-
-        headers = {}
-        auth_type = config['auth_type'] if config and config.get('auth_type') else 'none'
-        auth_value = config['auth_value'] if config else None
-        auth_header_name = config['auth_header_name'] if config and config.get('auth_header_name') else 'X-API-Key'
-
-        if auth_type == 'bearer' and auth_value:
-            headers['Authorization'] = f"Bearer {auth_value}"
-        elif auth_type == 'api_key' and auth_value:
-            headers[auth_header_name] = auth_value
         
         start_time = time.time()
         response = requests.request(
             method=method,
             url=full_url,
-            headers=headers,
             timeout=timeout,
             allow_redirects=True,
             verify=True
@@ -184,9 +173,8 @@ def check_single_endpoint(endpoint: dict, run_mode: str = "manual") -> dict:
         
         # Success if status is 2xx or 3xx
         success = 200 <= response.status_code < 400
-        auth_failed = response.status_code in (401, 403)
-        result_status = "Auth Failed" if auth_failed else ("Healthy" if success else "Failed")
-        error_message = "Auth Failed" if auth_failed else None
+        result_status = "Healthy" if success else "Failed"
+        error_message = None
         
         # Create result dict
         result = {
@@ -211,16 +199,7 @@ def check_single_endpoint(endpoint: dict, run_mode: str = "manual") -> dict:
         alert_ids = db.check_and_trigger_alerts(endpoint_id, result)
         db.update_last_check(endpoint_id)
 
-        if auth_failed:
-            db.log_event(
-                "MONITORING",
-                endpoint_id,
-                "Auth Failed (HTTP 401/403)",
-                f"mode={run_mode}; service={endpoint['service_name']}; method={method.upper()}; url={full_url}; "
-                f"status_code={response.status_code}; auth_type={auth_type}",
-                "ERROR"
-            )
-        elif not success:
+        if not success:
             db.log_event(
                 "MONITORING",
                 endpoint_id,
@@ -508,10 +487,7 @@ async def configure_monitoring(
     check_interval_seconds: int = Form(300),
     timeout_seconds: int = Form(30),
     latency_threshold_ms: float = Form(1000),
-    error_rate_threshold: float = Form(10),
-    auth_type: str = Form("none"),
-    auth_value: str = Form(""),
-    auth_header_name: str = Form("X-API-Key")
+    error_rate_threshold: float = Form(10)
 ):
     """Set monitoring settings for an endpoint"""
     endpoint = db.get_endpoint_by_id(endpoint_id)
@@ -524,10 +500,7 @@ async def configure_monitoring(
             check_interval_seconds=check_interval_seconds,
             timeout_seconds=timeout_seconds,
             latency_threshold_ms=latency_threshold_ms,
-            error_rate_threshold=error_rate_threshold,
-            auth_type=auth_type,
-            auth_value=auth_value,
-            auth_header_name=auth_header_name
+            error_rate_threshold=error_rate_threshold
         )
 
         db.set_alert_threshold(endpoint_id, 'latency', latency_threshold_ms)
@@ -539,8 +512,7 @@ async def configure_monitoring(
             endpoint_id,
             "Endpoint-level monitoring config updated",
             f"interval={check_interval_seconds}s; timeout={timeout_seconds}s; "
-            f"latency_threshold_ms={latency_threshold_ms}; error_rate_threshold={error_rate_threshold}%; "
-            f"auth_type={auth_type}; auth_header_name={auth_header_name}",
+            f"latency_threshold_ms={latency_threshold_ms}; error_rate_threshold={error_rate_threshold}%",
             "INFO"
         )
         

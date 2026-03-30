@@ -31,7 +31,7 @@ def is_internal_api(base_url: str) -> bool:
 def parse_openapi_spec(spec_dict: dict) -> tuple:
     """
     Extract service info and endpoints from an OpenAPI spec dictionary.
-    Returns: (service_name, base_url, is_internal, auth_type, endpoints_list)
+    Returns: (service_name, base_url, is_internal, endpoints_list)
     """
     # Get service name
     service_name = spec_dict.get('info', {}).get('title', 'Unknown API')
@@ -47,15 +47,6 @@ def parse_openapi_spec(spec_dict: dict) -> tuple:
     
     # Determine if internal
     is_internal = is_internal_api(base_url)
-    
-    # Get auth types
-    auth_types = []
-    if 'securitySchemes' in spec_dict.get('components', {}):
-        auth_types = list(spec_dict['components']['securitySchemes'].keys())
-    elif 'securityDefinitions' in spec_dict:  # Swagger 2.0
-        auth_types = list(spec_dict['securityDefinitions'].keys())
-    
-    auth_type = ', '.join(auth_types) if auth_types else None
     
     # Extract endpoints
     endpoints = []
@@ -73,7 +64,7 @@ def parse_openapi_spec(spec_dict: dict) -> tuple:
                 'description': description
             })
     
-    return service_name, base_url, is_internal, auth_type, endpoints
+    return service_name, base_url, is_internal, endpoints
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -104,7 +95,7 @@ async def upload_openapi_spec(
             raise HTTPException(status_code=400, detail="Invalid spec file (not valid JSON or YAML)")
         
         # Extract info from spec
-        parsed_service_name, base_url, is_internal, auth_type, endpoints = parse_openapi_spec(spec)
+        parsed_service_name, base_url, is_internal, endpoints = parse_openapi_spec(spec)
         final_service_name = service_name or parsed_service_name
         
         # Add each endpoint to the database
@@ -117,7 +108,6 @@ async def upload_openapi_spec(
                 path=ep['path'],
                 method=ep['method'],
                 description=ep['description'],
-                auth_type=auth_type,
                 is_internal=is_internal,
                 discovery_source=f"openapi:{file.filename}"
             )
@@ -190,7 +180,6 @@ async def upload_documentation(
                 path=path,
                 method=method,
                 description=f"From {file.filename}",
-                auth_type=None,
                 is_internal=is_internal,
                 discovery_source=f"docs:{file.filename}"
             )
@@ -231,7 +220,7 @@ async def parse_url(
             spec = yaml.safe_load(response.text)
         
         # Extract info from spec
-        parsed_service_name, base_url, is_internal, auth_type, endpoints = parse_openapi_spec(spec)
+        parsed_service_name, base_url, is_internal, endpoints = parse_openapi_spec(spec)
         final_service_name = service_name or parsed_service_name
         
         # Add endpoints to database
@@ -244,7 +233,6 @@ async def parse_url(
                 path=ep['path'],
                 method=ep['method'],
                 description=ep['description'],
-                auth_type=auth_type,
                 is_internal=is_internal,
                 discovery_source=f"url:{url}"
             )

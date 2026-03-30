@@ -43,7 +43,6 @@ async def add_endpoint(
     path: str = Form(...),
     method: str = Form(...),
     description: str = Form(None),
-    auth_type: str = Form(None),
     is_internal: bool = Form(False)
 ):
     """Add a new endpoint to the inventory"""
@@ -54,7 +53,6 @@ async def add_endpoint(
             path=path,
             method=method,
             description=description,
-            auth_type=auth_type,
             is_internal=is_internal,
             discovery_source="manual"
         )
@@ -78,7 +76,6 @@ async def update_endpoint(
     path: str = Form(None),
     method: str = Form(None),
     description: str = Form(None),
-    auth_type: str = Form(None),
     is_internal: bool = Form(None),
     is_active: bool = Form(None)
 ):
@@ -96,8 +93,6 @@ async def update_endpoint(
             updates['method'] = method
         if description is not None:
             updates['description'] = description
-        if auth_type:
-            updates['auth_type'] = auth_type
         if is_internal is not None:
             updates['is_internal'] = is_internal
         if is_active is not None:
@@ -175,7 +170,7 @@ async def export_inventory():
         output = io.StringIO()
         fieldnames = [
             'id', 'service_name', 'base_url', 'path', 'method', 'description',
-            'auth_type', 'is_internal', 'is_active', 'discovery_source',
+            'is_internal', 'is_active', 'discovery_source',
             'created_at', 'updated_at'
         ]
         

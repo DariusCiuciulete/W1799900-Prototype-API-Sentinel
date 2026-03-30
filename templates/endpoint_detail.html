@@ -21,7 +21,6 @@
                 <p><strong>Description:</strong> {{ endpoint.description or '-' }}</p>
             </div>
             <div>
-                <p><strong>Authentication:</strong> {{ endpoint.auth_type or 'None' }}</p>
                 <p><strong>Internal API:</strong> {{ 'Yes' if endpoint.is_internal else 'No' }}</p>
                 <p><strong>Active:</strong> {{ 'Yes' if endpoint.is_active else 'No' }}</p>
                 <p><strong>Source:</strong> {{ endpoint.discovery_source or 'Unknown' }}</p>
