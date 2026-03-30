@@ -4,7 +4,7 @@
 
 {% block content %}
 <div class="flex justify-between items-center mb-3">
-    <h1>API Monitoring</h1>
+    <h1>Monitoring</h1>
     <div class="flex gap-1">
         <button onclick="runMonitoring()" class="btn btn-success" id="runBtn">Run Monitoring Now</button>
     </div>
@@ -25,28 +25,139 @@
         <div class="stat-value" style="color: var(--primary-color);">{{ monitoring_stats.avg_response_time }}ms</div>
     </div>
     <div class="card stat-card">
-        <div class="stat-label">Failed Checks</div>
-        <div class="stat-value" style="color: var(--danger-color);">{{ monitoring_stats.failed_checks }}</div>
+        <div class="stat-label">Alerts</div>
+        <div class="stat-value" style="color: var(--danger-color);">{{ active_alerts_count }}</div>
     </div>
 </div>
 
 <!-- Status Message -->
 <div id="statusMessage" style="display: none;"></div>
 
-<!-- Alert Thresholds Section -->
+<!-- Service Setup Section -->
 <div class="card mb-3">
     <div class="card-header">
-        <h2 class="card-title">Alert Thresholds</h2>
+        <h2 class="card-title">Monitoring Setup</h2>
     </div>
     <div class="card-body">
         <p style="color: #666; margin-bottom: 15px;">
-            Set response time, availability, and error rate thresholds for each endpoint. 
-            Alerts will be triggered automatically when endpoints exceed these limits.
+            Configure each service once. After setup, monitoring runs automatically in the background.
         </p>
-        <p style="font-size: 12px; color: #999;">
-            <strong>Note:</strong> Thresholds are configured via the API. 
-            Use POST /alerts/endpoint/{endpoint_id}/threshold with parameters: threshold_type and threshold_value.
-        </p>
+        {% if services %}
+        <form id="serviceConfigForm" onsubmit="saveServiceConfig(event)">
+            <div class="grid grid-3" style="gap: 1rem;">
+                <div class="form-group">
+                    <label class="form-label">Service</label>
+                    <select name="service_name" id="service_name" class="form-control" required>
+                        {% for service in services %}
+                        <option value="{{ service.service_name }}">{{ service.service_name }} ({{ service.active_endpoint_count }} active endpoints)</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Check Interval (seconds)</label>
+                    <input type="number" name="check_interval_seconds" id="check_interval" class="form-control" value="300" min="60" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Timeout (seconds)</label>
+                    <input type="number" name="timeout_seconds" id="timeout" class="form-control" value="30" min="5" max="120" required>
+                </div>
+            </div>
+
+            <div class="grid grid-2" style="gap: 1rem; margin-top: 1rem;">
+                <div class="form-group">
+                    <label class="form-label">Latency Threshold (ms)</label>
+                    <input type="number" name="latency_threshold_ms" id="latency_threshold" class="form-control" value="1000" min="100" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Error Rate Threshold (%)</label>
+                    <input type="number" name="error_rate_threshold" id="error_rate_threshold" class="form-control" value="10" min="0" max="100" step="0.1" required>
+                </div>
+            </div>
+
+            <div class="mt-3">
+                <button type="submit" class="btn btn-primary">Save Service Setup</button>
+            </div>
+        </form>
+        {% else %}
+        <p style="color: #999;">No services found yet. Add endpoints from Discovery or Inventory first.</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Service Configuration Status -->
+<div class="card mb-3">
+    <div class="card-header">
+        <h2 class="card-title">Service Configuration Status</h2>
+    </div>
+    <div class="card-body">
+        {% if services %}
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Service</th>
+                        <th>Active Endpoints</th>
+                        <th>Auto Monitoring</th>
+                        <th>Interval</th>
+                        <th>Timeout</th>
+                        <th>Thresholds</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for service in services %}
+                    <tr>
+                        <td><strong>{{ service.service_name }}</strong></td>
+                        <td>{{ service.active_endpoint_count }}</td>
+                        <td>
+                            {% if service.config and service.config.enabled %}
+                            <span class="badge badge-success">Enabled</span>
+                            {% elif service.config %}
+                            <span class="badge badge-warning">Disabled</span>
+                            {% else %}
+                            <span class="badge badge-warning">Not Configured</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if service.config %}
+                            {{ service.config.check_interval_seconds }}s
+                            {% else %}
+                            -
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if service.config %}
+                            {{ service.config.timeout_seconds }}s
+                            {% else %}
+                            -
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if service.config %}
+                            Latency: {{ service.config.latency_threshold_ms }}ms<br>
+                            Error Rate: {{ service.config.error_rate_threshold }}%
+                            {% else %}
+                            -
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="flex gap-1">
+                                <button onclick="prefillService('{{ service.service_name }}', {{ service.config.check_interval_seconds if service.config else 300 }}, {{ service.config.timeout_seconds if service.config else 30 }}, {{ service.config.latency_threshold_ms if service.config else 1000 }}, {{ service.config.error_rate_threshold if service.config else 10 }})" class="btn btn-sm btn-secondary">Edit</button>
+                                {% if service.config and service.config.enabled %}
+                                <button onclick="disableService('{{ service.service_name }}')" class="btn btn-sm btn-danger">Disable</button>
+                                {% elif service.config %}
+                                <button onclick="enableService('{{ service.service_name }}')" class="btn btn-sm btn-success">Enable</button>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-center" style="color: var(--text-secondary);">No services available.</p>
+        {% endif %}
     </div>
 </div>
 
@@ -67,7 +178,6 @@
                         <th>Last Check</th>
                         <th>Response Time</th>
                         <th>Status Code</th>
-                        <th>Interval</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -112,16 +222,8 @@
                             {% endif %}
                         </td>
                         <td>
-                            {% if endpoint.config %}
-                            {{ endpoint.config.check_interval_seconds }}s
-                            {% else %}
-                            Not configured
-                            {% endif %}
-                        </td>
-                        <td>
                             <div class="flex gap-1">
                                 <button onclick="testEndpoint({{ endpoint.id }})" class="btn btn-sm btn-primary">Test Now</button>
-                                <button onclick="showConfigModal({{ endpoint.id }})" class="btn btn-sm btn-secondary">Configure</button>
                             </div>
                         </td>
                     </tr>
@@ -134,45 +236,6 @@
             No active endpoints to monitor. <a href="/inventory">Go to Inventory</a> to activate endpoints.
         </p>
         {% endif %}
-    </div>
-</div>
-
-<!-- Configuration Modal -->
-<div id="configModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000;">
-    <div style="position: relative; max-width: 600px; margin: 50px auto; background: white; border-radius: 8px; padding: 2rem;">
-        <h2>Configure Monitoring</h2>
-        <form id="configForm" onsubmit="saveConfig(event)">
-            <input type="hidden" name="endpoint_id" id="config_endpoint_id">
-            
-            <div class="form-group">
-                <label class="form-label">Check Interval (seconds)</label>
-                <input type="number" name="check_interval_seconds" id="check_interval" class="form-control" value="300" min="60" required>
-                <small>How often to check this endpoint (minimum 60 seconds)</small>
-            </div>
-            
-            <div class="form-group">
-                <label class="form-label">Timeout (seconds)</label>
-                <input type="number" name="timeout_seconds" id="timeout" class="form-control" value="30" min="5" max="120" required>
-                <small>Maximum time to wait for response</small>
-            </div>
-            
-            <div class="form-group">
-                <label class="form-label">Latency Threshold (ms)</label>
-                <input type="number" name="latency_threshold_ms" id="latency_threshold" class="form-control" value="1000" min="100" required>
-                <small>Alert if response time exceeds this value</small>
-            </div>
-            
-            <div class="form-group">
-                <label class="form-label">Error Rate Threshold (%)</label>
-                <input type="number" name="error_rate_threshold" id="error_rate_threshold" class="form-control" value="10" min="0" max="100" step="0.1" required>
-                <small>Alert if error rate exceeds this percentage</small>
-            </div>
-            
-            <div class="flex gap-1">
-                <button type="submit" class="btn btn-primary">Save Configuration</button>
-                <button type="button" onclick="hideConfigModal()" class="btn btn-secondary">Cancel</button>
-            </div>
-        </form>
     </div>
 </div>
 
@@ -223,7 +286,9 @@ async function testEndpoint(endpointId) {
         
         const result = await response.json();
         
-        if (result.success) {
+        if (result.status === 'Skipped') {
+            statusDiv.innerHTML = `<div class="alert alert-warning">Test skipped: ${result.reason || 'Non-safe method'}</div>`;
+        } else if (result.success) {
             statusDiv.innerHTML = `<div class="alert alert-success">Test successful<br>Status: ${result.status_code}, Response Time: ${result.response_time_ms.toFixed(2)}ms</div>`;
         } else {
             statusDiv.innerHTML = `<div class="alert alert-danger">Test failed: ${result.error || 'Unknown error'}</div>`;
@@ -237,27 +302,25 @@ async function testEndpoint(endpointId) {
     }
 }
 
-function showConfigModal(endpointId) {
-    document.getElementById('config_endpoint_id').value = endpointId;
-    document.getElementById('configModal').style.display = 'block';
+function prefillService(serviceName, interval, timeout, latency, errorRate) {
+    document.getElementById('service_name').value = serviceName;
+    document.getElementById('check_interval').value = interval;
+    document.getElementById('timeout').value = timeout;
+    document.getElementById('latency_threshold').value = latency;
+    document.getElementById('error_rate_threshold').value = errorRate;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-function hideConfigModal() {
-    document.getElementById('configModal').style.display = 'none';
-}
-
-async function saveConfig(event) {
+async function saveServiceConfig(event) {
     event.preventDefault();
     const form = event.target;
     const formData = new FormData(form);
-    const endpointId = formData.get('endpoint_id');
-    
-    // Convert error rate from percentage to decimal
-    const errorRate = parseFloat(formData.get('error_rate_threshold')) / 100;
-    formData.set('error_rate_threshold', errorRate);
+    const statusDiv = document.getElementById('statusMessage');
+    statusDiv.style.display = 'block';
+    statusDiv.innerHTML = '<div class="alert alert-info">Saving service monitoring setup...</div>';
     
     try {
-        const response = await fetch(`/monitoring/configure/${endpointId}`, {
+        const response = await fetch('/monitoring/service/setup', {
             method: 'POST',
             body: formData
         });
@@ -265,14 +328,65 @@ async function saveConfig(event) {
         const result = await response.json();
         
         if (result.success) {
-            alert('Configuration saved successfully');
-            hideConfigModal();
-            window.location.reload();
+            statusDiv.innerHTML = `<div class="alert alert-success">${result.message}. Applied to ${result.applied_endpoints} endpoint(s).</div>`;
+            setTimeout(() => window.location.reload(), 1200);
         } else {
-            alert('Error: ' + result.message);
+            statusDiv.innerHTML = `<div class="alert alert-danger">${result.message || 'Failed to save service configuration'}</div>`;
         }
     } catch (error) {
-        alert('Error saving configuration: ' + error);
+        statusDiv.innerHTML = `<div class="alert alert-danger">Error saving service setup: ${error}</div>`;
+    }
+}
+
+async function disableService(serviceName) {
+    if (!confirm(`Disable automatic monitoring for ${serviceName}?`)) {
+        return;
+    }
+
+    const statusDiv = document.getElementById('statusMessage');
+    statusDiv.style.display = 'block';
+    statusDiv.innerHTML = '<div class="alert alert-info">Disabling service monitoring...</div>';
+
+    try {
+        const response = await fetch(`/monitoring/service/disable/${encodeURIComponent(serviceName)}`, {
+            method: 'POST'
+        });
+        const result = await response.json();
+
+        if (result.success) {
+            statusDiv.innerHTML = `<div class="alert alert-success">${result.message}</div>`;
+            setTimeout(() => window.location.reload(), 1200);
+        } else {
+            statusDiv.innerHTML = `<div class="alert alert-danger">${result.message || 'Failed to disable service monitoring'}</div>`;
+        }
+    } catch (error) {
+        statusDiv.innerHTML = `<div class="alert alert-danger">Error: ${error}</div>`;
+    }
+}
+
+async function enableService(serviceName) {
+    if (!confirm(`Enable automatic monitoring for ${serviceName}?`)) {
+        return;
+    }
+
+    const statusDiv = document.getElementById('statusMessage');
+    statusDiv.style.display = 'block';
+    statusDiv.innerHTML = '<div class="alert alert-info">Enabling service monitoring...</div>';
+
+    try {
+        const response = await fetch(`/monitoring/service/enable/${encodeURIComponent(serviceName)}`, {
+            method: 'POST'
+        });
+        const result = await response.json();
+
+        if (result.success) {
+            statusDiv.innerHTML = `<div class="alert alert-success">${result.message}</div>`;
+            setTimeout(() => window.location.reload(), 1200);
+        } else {
+            statusDiv.innerHTML = `<div class="alert alert-danger">${result.message || 'Failed to enable service monitoring'}</div>`;
+        }
+    } catch (error) {
+        statusDiv.innerHTML = `<div class="alert alert-danger">Error: ${error}</div>`;
     }
 }
 </script>

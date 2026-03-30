@@ -8,7 +8,7 @@
     <div class="flex gap-1">
         <a href="/logs/export{% if event_type != 'all' %}?event_type={{ event_type }}{% endif %}" class="btn btn-secondary btn-sm">Export CSV</a>
         {% if event_type != 'all' %}
-        <a href="/logs" class="btn btn-secondary btn-sm">Clear Filter</a>
+        <a href="/logs?limit={{ limit }}" class="btn btn-secondary btn-sm">Clear Filter</a>
         {% endif %}
     </div>
 </div>
@@ -18,11 +18,11 @@
     <div class="card-body">
         <h3 class="mb-2">Filter by Event Type</h3>
         <div class="flex gap-1" style="flex-wrap: wrap;">
-            <a href="/logs" class="btn {% if event_type == 'all' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">All Events</a>
-            <a href="/logs?event_type=DISCOVERY" class="btn {% if event_type == 'DISCOVERY' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">Discovery</a>
-            <a href="/logs?event_type=INVENTORY" class="btn {% if event_type == 'INVENTORY' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">Inventory</a>
-            <a href="/logs?event_type=MONITORING" class="btn {% if event_type == 'MONITORING' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">Monitoring</a>
-            <a href="/logs?event_type=ALERT" class="btn {% if event_type == 'ALERT' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">Alerts</a>
+            <a href="/logs?limit={{ limit }}" class="btn {% if event_type == 'all' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">All Events</a>
+            <a href="/logs?event_type=DISCOVERY&limit={{ limit }}" class="btn {% if event_type == 'DISCOVERY' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">Discovery</a>
+            <a href="/logs?event_type=INVENTORY&limit={{ limit }}" class="btn {% if event_type == 'INVENTORY' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">Inventory</a>
+            <a href="/logs?event_type=MONITORING&limit={{ limit }}" class="btn {% if event_type == 'MONITORING' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">Monitoring</a>
+            <a href="/logs?event_type=ALERT&limit={{ limit }}" class="btn {% if event_type == 'ALERT' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">Alerts</a>
         </div>
     </div>
 </div>
@@ -30,12 +30,12 @@
 <!-- Logs Statistics -->
 <div class="grid grid-2 mb-3">
     <div class="card stat-card">
-        <div class="stat-label">Total Logs</div>
+        <div class="stat-label">Loaded Logs</div>
         <div class="stat-value">{{ count }}</div>
     </div>
     <div class="card stat-card">
-        <div class="stat-label">Current Filter</div>
-        <div class="stat-value" style="font-size: 14px;">{{ event_type }}</div>
+        <div class="stat-label">Total Available</div>
+        <div class="stat-value" style="font-size: 20px;">{{ total_count }}</div>
     </div>
 </div>
 
@@ -55,14 +55,13 @@
                         <th>Endpoint ID</th>
                         <th>Message</th>
                         <th>Details</th>
-                        <th>Severity</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for log in logs %}
                     <tr>
                         <td>
-                            <small>{{ log['created_at']|slice(0, 19) }}</small>
+                            <small>{{ log['created_at'][:19] if log['created_at'] else '—' }}</small>
                         </td>
                         <td>
                             <span class="badge" style="background-color: 
@@ -75,8 +74,8 @@
                             </span>
                         </td>
                         <td>
-                            {% if log['endpoint_id'] %}
-                            <a href="/inventory/{{ log['endpoint_id'] }}">{{ log['endpoint_id'] }}</a>
+                            {% if log['target_display'] %}
+                            {{ log['target_display'] }}
                             {% else %}
                             <em style="color: #999;">—</em>
                             {% endif %}
@@ -84,18 +83,13 @@
                         <td>{{ log['message'] }}</td>
                         <td>
                             {% if log['details'] %}
-                            <small style="color: #666;">{{ log['details'] }}</small>
+                            <div class="log-details-cell" id="details-{{ log['id'] }}">
+                                <button class="log-details-toggle" onclick="toggleDetails({{ log['id'] }})" title="View details">⊕</button>
+                                <div class="log-details-full" id="full-{{ log['id'] }}" style="display: none; margin-top: 8px; padding: 8px; background: #f5f5f5; border-radius: 4px; font-size: 12px; font-family: monospace; max-height: 200px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;">{{ log['details'] }}</div>
+                            </div>
                             {% else %}
                             <em style="color: #999;">—</em>
                             {% endif %}
-                        </td>
-                        <td>
-                            <span style="color: 
-                                {% if log['severity'] == 'ERROR' %}#dc3545
-                                {% elif log['severity'] == 'WARNING' %}#ffc107
-                                {% else %}#28a745{% endif %};">
-                                {{ log['severity'] }}
-                            </span>
                         </td>
                     </tr>
                     {% endfor %}
@@ -105,6 +99,14 @@
         {% else %}
         <div style="padding: 20px; text-align: center; color: #999;">
             <p>No logs found</p>
+        </div>
+        {% endif %}
+
+        {% if has_more %}
+        <div style="margin-top: 12px; text-align: center;">
+            <a href="/logs?{% if event_type != 'all' %}event_type={{ event_type }}&{% endif %}limit={{ next_limit }}" class="btn btn-primary btn-sm">
+                Load More ({{ next_limit if next_limit < total_count else total_count }} / {{ total_count }})
+            </a>
         </div>
         {% endif %}
     </div>
@@ -173,5 +175,52 @@
     table tbody tr:hover {
         background-color: #f9f9f9;
     }
+    
+    .log-details-cell {
+        position: relative;
+        font-size: 12px;
+        color: #666;
+    }
+    
+    .log-details-toggle {
+        background: none;
+        border: none;
+        color: #007bff;
+        cursor: pointer;
+        padding: 0;
+        font-size: 16px;
+        font-weight: bold;
+        vertical-align: baseline;
+        transition: color 0.2s ease;
+        line-height: 1;
+    }
+    
+    .log-details-toggle:hover {
+        color: #0056b3;
+    }
+    
+    .log-details-full {
+        background: #f8f9fa;
+        border-left: 3px solid #007bff;
+        color: #333;
+    }
 </style>
+
+<script>
+function toggleDetails(logId) {
+    const fullDiv = document.getElementById('full-' + logId);
+    const button = event.target;
+    
+    if (fullDiv.style.display === 'none') {
+        fullDiv.style.display = 'block';
+        button.textContent = '⊖';
+        button.title = 'Hide details';
+    } else {
+        fullDiv.style.display = 'none';
+        button.textContent = '⊕';
+        button.title = 'View details';
+    }
+}
+</script>
+
 {% endblock %}

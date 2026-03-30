@@ -30,18 +30,28 @@ async def alerts_page(request: Request):
 async def resolve_alert(alert_id: int):
     """Mark an alert as resolved"""
     try:
+        matching_alerts = [alert for alert in db.get_active_alerts() if alert['id'] == alert_id]
+        alert = matching_alerts[0] if matching_alerts else None
         success = db.resolve_alert(alert_id)
         
         if success:
             logger.info(f"Resolved alert {alert_id}")
-            db.log_event("ALERT", None, f"Alert {alert_id} resolved")
+            db.log_event(
+                "ALERT",
+                alert['endpoint_id'] if alert else None,
+                f"Alert {alert_id} resolved",
+                f"endpoint_id={alert['endpoint_id']}" if alert else None,
+                "INFO"
+            )
             return {"success": True}
         else:
             raise HTTPException(status_code=404, detail="Alert not found")
     
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error resolving alert: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error while resolving alert")
 
 
 @router.post("/endpoint/{endpoint_id}/threshold")
@@ -64,9 +74,11 @@ async def set_endpoint_threshold(
         
         return {"success": True, "message": f"Threshold set: {threshold_type}"}
     
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error setting threshold: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error while setting threshold")
 
 
 @router.get("/endpoint/{endpoint_id}/thresholds")

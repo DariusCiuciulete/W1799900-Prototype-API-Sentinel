@@ -4,7 +4,7 @@
 
 {% block content %}
 <div class="flex justify-between items-center mb-3">
-    <h1>API Alerts</h1>
+    <h1>Alerts</h1>
 </div>
 
 <!-- Alert Statistics -->
@@ -37,8 +37,6 @@
                         <th>Type</th>
                         <th>Severity</th>
                         <th>Message</th>
-                        <th>Threshold</th>
-                        <th>Actual</th>
                         <th>Action</th>
                     </tr>
                 </thead>
@@ -46,38 +44,20 @@
                     {% for alert in alerts %}
                     <tr>
                         <td>
-                            <small>{{ alert['created_at']|slice(0, 19) }}</small>
+                            <small>{{ alert['created_at'][:19] if alert['created_at'] else '—' }}</small>
                         </td>
                         <td>
-                            <a href="/inventory/{{ alert['endpoint_id'] }}">Endpoint #{{ alert['endpoint_id'] }}</a>
+                            {{ alert['endpoint_id'] }}
                         </td>
                         <td>
                             <span style="font-weight: bold;">{{ alert['alert_type'] }}</span>
                         </td>
                         <td>
-                            <span style="color: 
-                                {% if alert['severity'] == 'CRITICAL' %}#dc3545
-                                {% elif alert['severity'] == 'HIGH' %}#fd7e14
-                                {% elif alert['severity'] == 'MEDIUM' %}#ffc107
-                                {% else %}#17a2b8{% endif %}; font-weight: bold;">
+                            <span class="severity-badge severity-{{ alert['severity']|lower }}">
                                 {{ alert['severity'] }}
                             </span>
                         </td>
                         <td>{{ alert['message'] }}</td>
-                        <td>
-                            {% if alert['threshold_value'] %}
-                            {{ alert['threshold_value'] }}
-                            {% else %}
-                            <em style="color: #999;">—</em>
-                            {% endif %}
-                        </td>
-                        <td>
-                            {% if alert['actual_value'] %}
-                            <strong>{{ alert['actual_value'] }}</strong>
-                            {% else %}
-                            <em style="color: #999;">—</em>
-                            {% endif %}
-                        </td>
                         <td>
                             <button onclick="resolveAlert({{ alert['id'] }})" class="btn btn-sm btn-success">Resolve</button>
                         </td>
@@ -121,6 +101,32 @@
     
     .table-container {
         overflow-x: auto;
+    }
+
+    .severity-badge {
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 4px;
+        color: white;
+        font-size: 12px;
+        font-weight: bold;
+    }
+
+    .severity-critical {
+        background-color: #dc3545;
+    }
+
+    .severity-high {
+        background-color: #fd7e14;
+    }
+
+    .severity-medium {
+        background-color: #ffc107;
+        color: #212529;
+    }
+
+    .severity-low {
+        background-color: #17a2b8;
     }
     
     table {

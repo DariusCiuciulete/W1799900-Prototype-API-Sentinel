@@ -9,6 +9,7 @@ import yaml
 import json
 import re
 import logging
+import requests
 from bs4 import BeautifulSoup
 from app.database import db
 
@@ -103,17 +104,15 @@ async def upload_openapi_spec(
             raise HTTPException(status_code=400, detail="Invalid spec file (not valid JSON or YAML)")
         
         # Extract info from spec
-        service_name, base_url, is_internal, auth_type, endpoints = parse_openapi_spec(spec)
-        
-        # Use provided service name if given
-        if service_name:
-            service_name = service_name
+        parsed_service_name, base_url, is_internal, auth_type, endpoints = parse_openapi_spec(spec)
+        final_service_name = service_name or parsed_service_name
         
         # Add each endpoint to the database
         endpoints_added = 0
+        endpoint_ids = []
         for ep in endpoints:
             endpoint_id = db.add_endpoint(
-                service_name=service_name,
+                service_name=final_service_name,
                 base_url=base_url,
                 path=ep['path'],
                 method=ep['method'],
@@ -123,15 +122,16 @@ async def upload_openapi_spec(
                 discovery_source=f"openapi:{file.filename}"
             )
             endpoints_added += 1
+            endpoint_ids.append(str(endpoint_id))
         
         logger.info(f"Discovered {endpoints_added} endpoints from {file.filename}")
         db.log_event("DISCOVERY", None, 
-                    f"OpenAPI spec parsed: {service_name}",
-                    f"File: {file.filename}, Endpoints: {endpoints_added}")
+                    f"OpenAPI spec parsed: {final_service_name}",
+                    f"file={file.filename}; endpoints={endpoints_added}; endpoint_ids={','.join(endpoint_ids)}")
         
         return {
             "success": True,
-            "service_name": service_name,
+            "service_name": final_service_name,
             "endpoints_added": endpoints_added,
             "message": f"Found {endpoints_added} endpoints"
         }
@@ -182,6 +182,7 @@ async def upload_documentation(
         
         # Add discovered endpoints to database
         endpoints_added = 0
+        endpoint_ids = []
         for method, path in found_endpoints:
             endpoint_id = db.add_endpoint(
                 service_name=service_name,
@@ -194,11 +195,12 @@ async def upload_documentation(
                 discovery_source=f"docs:{file.filename}"
             )
             endpoints_added += 1
+            endpoint_ids.append(str(endpoint_id))
         
         logger.info(f"Discovered {endpoints_added} endpoints from {file.filename}")
         db.log_event("DISCOVERY", None,
                     f"Documentation parsed: {service_name}",
-                    f"File: {file.filename}, Endpoints: {endpoints_added}")
+                    f"file={file.filename}; endpoints={endpoints_added}; endpoint_ids={','.join(endpoint_ids)}")
         
         return {
             "success": True,
@@ -219,8 +221,6 @@ async def parse_url(
 ):
     """Fetch and parse OpenAPI spec from a URL"""
     try:
-        import requests
-        
         response = requests.get(url, timeout=30)
         response.raise_for_status()
         
@@ -231,17 +231,15 @@ async def parse_url(
             spec = yaml.safe_load(response.text)
         
         # Extract info from spec
-        service_name, base_url, is_internal, auth_type, endpoints = parse_openapi_spec(spec)
-        
-        # Use provided service name if given
-        if service_name:
-            service_name = service_name
+        parsed_service_name, base_url, is_internal, auth_type, endpoints = parse_openapi_spec(spec)
+        final_service_name = service_name or parsed_service_name
         
         # Add endpoints to database
         endpoints_added = 0
+        endpoint_ids = []
         for ep in endpoints:
             endpoint_id = db.add_endpoint(
-                service_name=service_name,
+                service_name=final_service_name,
                 base_url=base_url,
                 path=ep['path'],
                 method=ep['method'],
@@ -251,15 +249,16 @@ async def parse_url(
                 discovery_source=f"url:{url}"
             )
             endpoints_added += 1
+            endpoint_ids.append(str(endpoint_id))
         
         logger.info(f"Discovered {endpoints_added} endpoints from URL")
         db.log_event("DISCOVERY", None,
-                    f"OpenAPI spec from URL: {service_name}",
-                    f"URL: {url}, Endpoints: {endpoints_added}")
+                    f"OpenAPI spec from URL: {final_service_name}",
+                    f"url={url}; endpoints={endpoints_added}; endpoint_ids={','.join(endpoint_ids)}")
         
         return {
             "success": True,
-            "service_name": service_name,
+            "service_name": final_service_name,
             "endpoints_added": endpoints_added,
             "message": f"Found {endpoints_added} endpoints"
         }

@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block title %}Endpoint Details - API Sentinel{% endblock %}
+
+{% block content %}
+<div class="flex justify-between items-center mb-3">
+    <h1>Endpoint Details</h1>
+    <a href="/inventory" class="btn btn-secondary btn-sm">Back to Inventory</a>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header">
+        <h2 class="card-title">{{ endpoint.service_name }}</h2>
+    </div>
+    <div class="card-body">
+        <div class="grid grid-2" style="margin-bottom: 0;">
+            <div>
+                <p><strong>Method:</strong> <span class="badge badge-info">{{ endpoint.method }}</span></p>
+                <p><strong>Path:</strong> <code>{{ endpoint.path }}</code></p>
+                <p><strong>Base URL:</strong> {{ endpoint.base_url }}</p>
+                <p><strong>Description:</strong> {{ endpoint.description or '-' }}</p>
+            </div>
+            <div>
+                <p><strong>Authentication:</strong> {{ endpoint.auth_type or 'None' }}</p>
+                <p><strong>Internal API:</strong> {{ 'Yes' if endpoint.is_internal else 'No' }}</p>
+                <p><strong>Active:</strong> {{ 'Yes' if endpoint.is_active else 'No' }}</p>
+                <p><strong>Source:</strong> {{ endpoint.discovery_source or 'Unknown' }}</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Recent Monitoring Results</h2>
+    </div>
+    <div class="card-body">
+        {% if monitoring_results %}
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Checked At</th>
+                        <th>Status Code</th>
+                        <th>Response Time</th>
+                        <th>Success</th>
+                        <th>Error</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for result in monitoring_results %}
+                    <tr>
+                        <td>{{ result.checked_at }}</td>
+                        <td>{{ result.status_code if result.status_code is not none else '-' }}</td>
+                        <td>
+                            {% if result.response_time_ms is not none %}
+                            {{ "%.2f"|format(result.response_time_ms) }}ms
+                            {% else %}
+                            -
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if result.success %}
+                            <span class="badge badge-success">Yes</span>
+                            {% else %}
+                            <span class="badge badge-danger">No</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ result.error_message or '-' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-center" style="color: var(--text-secondary);">No monitoring results yet.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

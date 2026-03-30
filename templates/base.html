@@ -33,5 +33,215 @@
     </main>
 
     {% block extra_scripts %}{% endblock %}
+
+    <!-- System Resource Widget -->
+    <div id="system-resource-widget" class="sys-widget" style="cursor: move;">
+        <div class="sys-widget-header">
+            <div class="sys-widget-title">System Resource Info</div>
+            <button id="sys-widget-toggle" class="sys-widget-btn" title="Collapse/Expand">−</button>
+        </div>
+        <div id="sys-widget-body" class="sys-widget-body">Loading...</div>
+    </div>
+
+    <style>
+    .sys-widget {
+        position: fixed;
+        right: 16px;
+        bottom: 16px;
+        width: 240px;
+        background: rgba(22, 28, 36, 0.94);
+        color: #f3f6f9;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 10px;
+        box-shadow: 0 8px 22px rgba(0, 0, 0, 0.24);
+        z-index: 1100;
+        padding: 10px 12px;
+        font-size: 13px;
+        backdrop-filter: blur(4px);
+        user-select: none;
+        transition: box-shadow 0.2s ease;
+    }
+    .sys-widget.dragging {
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.36);
+    }
+    .sys-widget-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+    }
+    .sys-widget-title {
+        font-weight: 700;
+        letter-spacing: 0.2px;
+        flex: 1;
+    }
+    .sys-widget-btn {
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        color: #f3f6f9;
+        width: 24px;
+        height: 24px;
+        padding: 0;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 700;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .sys-widget-btn:hover {
+        background: rgba(255, 255, 255, 0.12);
+        border-color: rgba(255, 255, 255, 0.2);
+    }
+    .sys-widget-body {
+        line-height: 1.45;
+        margin-top: 8px;
+        max-height: 300px;
+        overflow-y: auto;
+        transition: all 0.2s ease;
+    }
+    .sys-widget-body.collapsed {
+        display: none;
+    }
+    .sys-widget-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+    }
+    @media (max-width: 768px) {
+        .sys-widget {
+            width: calc(100vw - 24px);
+            right: 12px;
+            bottom: 12px;
+            font-size: 12px;
+        }
+    }
+    </style>
+
+    <script>
+    const widget = document.getElementById("system-resource-widget");
+    const toggleBtn = document.getElementById("sys-widget-toggle");
+    const widgetBody = document.getElementById("sys-widget-body");
+    let isDragging = false;
+    let offsetX = 0;
+    let offsetY = 0;
+    const storageKey = "sysWidgetPositionAndState";
+
+    // Load saved position and state
+    function loadWidgetState() {
+        const saved = localStorage.getItem(storageKey);
+        if (saved) {
+            const state = JSON.parse(saved);
+            if (state.position) {
+                widget.style.right = "auto";
+                widget.style.bottom = "auto";
+                widget.style.left = state.position.left + "px";
+                widget.style.top = state.position.top + "px";
+            }
+            if (state.collapsed) {
+                widgetBody.classList.add("collapsed");
+                toggleBtn.textContent = "+";
+            }
+        }
+    }
+
+    // Save position and state
+    function saveWidgetState() {
+        const rect = widget.getBoundingClientRect();
+        const state = {
+            position: {
+                left: widget.offsetLeft,
+                top: widget.offsetTop
+            },
+            collapsed: widgetBody.classList.contains("collapsed")
+        };
+        localStorage.setItem(storageKey, JSON.stringify(state));
+    }
+
+    // Toggle collapse/expand
+    toggleBtn.addEventListener("click", function(e) {
+        e.stopPropagation();
+        widgetBody.classList.toggle("collapsed");
+        toggleBtn.textContent = widgetBody.classList.contains("collapsed") ? "+" : "−";
+        saveWidgetState();
+    });
+
+    // Drag functionality
+    widget.addEventListener("mousedown", function(e) {
+        if (e.target === toggleBtn) return;
+        isDragging = true;
+        offsetX = e.clientX - widget.offsetLeft;
+        offsetY = e.clientY - widget.offsetTop;
+        widget.classList.add("dragging");
+        document.addEventListener("mousemove", onDrag);
+        document.addEventListener("mouseup", onDragEnd);
+    });
+
+    function onDrag(e) {
+        if (!isDragging) return;
+        const x = e.clientX - offsetX;
+        const y = e.clientY - offsetY;
+        
+        // Constrain to viewport
+        const maxX = window.innerWidth - widget.offsetWidth;
+        const maxY = window.innerHeight - widget.offsetHeight;
+        
+        widget.style.left = Math.max(0, Math.min(x, maxX)) + "px";
+        widget.style.top = Math.max(0, Math.min(y, maxY)) + "px";
+        widget.style.right = "auto";
+        widget.style.bottom = "auto";
+    }
+
+    function onDragEnd() {
+        isDragging = false;
+        widget.classList.remove("dragging");
+        document.removeEventListener("mousemove", onDrag);
+        document.removeEventListener("mouseup", onDragEnd);
+        saveWidgetState();
+    }
+
+    function formatUptime(totalSeconds) {
+        const hours = Math.floor(totalSeconds / 3600);
+        const mins = Math.floor((totalSeconds % 3600) / 60);
+        return hours + "h " + mins + "m";
+    }
+
+    async function refreshSystemWidget() {
+        const body = document.getElementById("sys-widget-body");
+        if (!body) return;
+
+        try {
+            const res = await fetch("/system/resources", { cache: "no-store" });
+            const data = await res.json();
+
+            if (!data.available) {
+                body.innerHTML = '<div>Metrics unavailable</div><div style="opacity:.8;">' + (data.message || "") + '</div>';
+                return;
+            }
+
+            body.innerHTML = ''
+                + '<div class="sys-widget-row"><span>CPU</span><strong>' + data.cpu_percent + '%</strong></div>'
+                + '<div class="sys-widget-row"><span>RAM</span><strong>' + data.ram_percent + '%</strong></div>'
+                + '<div class="sys-widget-row"><span>Disk</span><strong>' + data.disk_percent + '%</strong></div>'
+                + '<div style="margin-top:6px; opacity:.82;">' 
+                + data.ram_used_gb + ' / ' + data.ram_total_gb + ' GB RAM'
+                + '</div>'
+                + '<div style="opacity:.82;">' 
+                + data.disk_used_gb + ' / ' + data.disk_total_gb + ' GB Disk'
+                + '</div>'
+                + '<div style="margin-top:6px; opacity:.72;">' 
+                + data.hostname + ' • Uptime ' + formatUptime(data.uptime_seconds)
+                + '</div>';
+        } catch (err) {
+            body.textContent = "Error loading metrics";
+        }
+    }
+
+    loadWidgetState();
+    refreshSystemWidget();
+    setInterval(refreshSystemWidget, 10000);
+    </script>
 </body>
 </html>

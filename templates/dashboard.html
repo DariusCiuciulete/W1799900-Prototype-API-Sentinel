@@ -30,43 +30,27 @@
         <a href="/inventory" class="btn btn-primary btn-sm">View All</a>
     </div>
     <div class="card-body">
-        {% if endpoints %}
+        {% if service_inventory %}
         <div class="table-container">
             <table>
                 <thead>
                     <tr>
                         <th>Service Name</th>
-                        <th>Method</th>
-                        <th>Endpoint</th>
-                        <th>Status</th>
-                        <th>Type</th>
+                        <th>Total Endpoints</th>
+                        <th>Monitored Endpoints</th>
                         <th>Last Checked</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for endpoint in endpoints[:10] %}
+                    {% for service in service_inventory %}
                     <tr>
-                        <td><strong>{{ endpoint.service_name }}</strong></td>
-                        <td><span class="badge badge-info">{{ endpoint.method }}</span></td>
-                        <td><code>{{ endpoint.path }}</code></td>
+                        <td><strong>{{ service.service_name }}</strong></td>
+                        <td>{{ service.total_endpoints }}</td>
+                        <td>{{ service.active_endpoints }}</td>
+                        <td>{{ service.last_checked|default('Never') }}</td>
                         <td>
-                            {% if endpoint.is_active %}
-                            <span class="badge badge-success">Active</span>
-                            {% else %}
-                            <span class="badge badge-warning">Inactive</span>
-                            {% endif %}
-                        </td>
-                        <td>
-                            {% if endpoint.is_internal %}
-                            <span class="badge badge-info">Internal</span>
-                            {% else %}
-                            <span class="badge badge-warning">External</span>
-                            {% endif %}
-                        </td>
-                        <td>{{ endpoint.last_checked|default('Never') }}</td>
-                        <td>
-                            <a href="/monitoring/test/{{ endpoint.id }}" class="btn btn-sm btn-primary">Test</a>
+                            <a href="/inventory" class="btn btn-sm btn-primary">View Endpoints</a>
                         </td>
                     </tr>
                     {% endfor %}

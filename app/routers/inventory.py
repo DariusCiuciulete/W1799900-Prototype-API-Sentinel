@@ -63,9 +63,11 @@ async def add_endpoint(
         db.log_event("INVENTORY", endpoint_id, f"Endpoint added: {method} {path}")
         return {"success": True, "endpoint_id": endpoint_id}
     
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error adding endpoint: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error while adding endpoint")
 
 
 @router.post("/update/{endpoint_id}")
@@ -110,9 +112,11 @@ async def update_endpoint(
         else:
             raise HTTPException(status_code=404, detail="Endpoint not found")
     
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error updating endpoint: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error while updating endpoint")
 
 
 @router.post("/delete/{endpoint_id}")
@@ -123,14 +127,15 @@ async def delete_endpoint(endpoint_id: int):
         
         if success:
             logger.info(f"Deleted endpoint {endpoint_id}")
-            db.log_event("INVENTORY", None, f"Endpoint deleted (ID: {endpoint_id})")
             return {"success": True}
         else:
             raise HTTPException(status_code=404, detail="Endpoint not found")
     
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error deleting endpoint: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error while deleting endpoint")
 
 
 @router.post("/toggle/{endpoint_id}")
@@ -153,9 +158,11 @@ async def toggle_endpoint(endpoint_id: int):
         else:
             raise HTTPException(status_code=500, detail="Could not update")
     
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error toggling endpoint: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error while toggling endpoint")
 
 
 @router.get("/export")
@@ -184,9 +191,11 @@ async def export_inventory():
             headers={"Content-Disposition": "attachment; filename=api_inventory.csv"}
         )
     
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error exporting: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error while exporting inventory")
 
 
 @router.get("/{endpoint_id}")
